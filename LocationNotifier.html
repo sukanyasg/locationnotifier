@@ -1,0 +1,194 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=7; IE=EmulateIE9; IE=10" />
+  <meta name="keywords" content="addInfoBubble,findNearestMarker,addClickEventListenerToMap" />
+  <title>Location Notifier with HERE Maps</title>
+  <link rel="stylesheet" type="text/css" href="styles.css">
+  <link href='http://fonts.googleapis.com/css?family=Inika' rel='stylesheet' type='text/css'>
+  <!-- Set up constants such as APP ID and token -->
+  <script type="text/javascript" src="libs/hereAppIdAndToken.js"></script>
+  <!-- Bootstrap jQuery Library -->
+  <script type="text/javascript" src="libs/jQl.min.js"></script>
+  <!-- Asynchronously the HERE Maps API for JavaScript -->
+  <script type="text/javascript" src="libs/hereAsyncLoader.js"
+    id="HereMapsLoaderScript"
+    data-map-container="mapContainer"
+    data-params="maps,directions"
+    data-callback="afterHereMapLoad" >
+  </script>
+  <!--<link href="http://developer.here.com/html/css/main.css" rel="stylesheet" />-->
+</head>
+<body>
+  <div id="page-wrapper">
+    <header id="header">
+      <h2>Location Notifier</h2>
+    </header>
+      <div id="content-wrapper">
+        <div id="main-content">
+          <p>You'll be notified as soon as you are near any of the places you wanted to visit</p>
+          <p><span id="nearestMarker"></span></p>
+          <p><span id="mybutton"></span></p>
+          <p><span id="reloadbutton"></span></p>
+          <div id="mapContainer" style="width:540px; height:334px;"></div>
+        </div>
+      </div>
+      <script id="example-code" data-categories="marker,events" type="text/javascript" >
+
+          var map;
+          var from_place;
+          var to_place_index;
+          var to_place;
+
+          function onRouteCalculated(observedRouter, key, value) {
+            if (value === 'finished') {
+              var routes = observedRouter.getRoutes(),
+                mapRoute =
+                  new nokia.maps.routing.component.RouteResultSet(
+                    routes[0]
+                  ).container; //first option found
+              map.objects.add(mapRoute);
+
+              //Zoom to the bounding box of the route
+              map.zoomTo(mapRoute.getBoundingBox(), false, 'default');
+            } else if (value === 'failed') {
+              alert('The routing request failed.');
+            }
+
+            $("#reloadbutton").text("Reload Map?");
+            $("#reloadbutton" ).click(function() {reloadFunc();});
+          }
+          
+          function reloadFunc() {
+            location.reload();
+          }
+
+          function makeRouteRequest() {
+            var waypoints = new nokia.maps.routing.WaypointParameterList(),
+              modes = [{
+                type: 'shortest',
+                transportModes: ['car'],
+                options: 'avoidTollroad',
+                trafficMode: 'default'
+              }];
+            waypoints.addCoordinate(
+              new nokia.maps.geo.Coordinate(from_place.latitude, from_place.longitude)
+            ); // Berlin, Germany
+            waypoints.addCoordinate(
+              new nokia.maps.geo.Coordinate(to_place.latitude, to_place.longitude)
+            );  // Paris, France
+
+            router = new nokia.maps.routing.Manager();
+            router.addObserver('state', onRouteCalculated);
+            router.calculateRoute(waypoints, modes);
+          }
+
+          function addMarkerToContainer(container, coordinate, html) {
+            var marker = new nokia.maps.map.StandardMarker(
+              coordinate,
+              {html: html}
+            );
+            container.objects.add(marker);
+          }
+
+          function addInfoBubble(map, coords, places) {
+            var infoBubbles = new nokia.maps.map.component.InfoBubbles(),
+              TOUCH = nokia.maps.dom.Page.browser.touch,
+              CLICK = TOUCH ? 'tap' : 'click',
+              container = new nokia.maps.map.Container();
+
+            container.addListener(CLICK, function (evt) {
+              infoBubbles.openBubble(evt.target.html, evt.target.coordinate);
+            }, false);
+            map.components.add(infoBubbles);
+            map.objects.add(container);
+            $.each(coords , function (index, value) {
+               addMarkerToContainer(container, value,
+              places[index]);
+              });
+          }
+
+          function findNearestMarker(coords1, places) {
+            var minDist = 1050,
+              nearest_text = '*None*',
+              markerDist,
+              len = map.objects.getLength(),
+              i;
+            for (i = 0; i < len - 2; i += 1) {
+              if (map.objects.get(i) instanceof nokia.maps.map.StandardMarker) {
+                markerDist = map.objects.get(i).coordinate.distance(coords1);
+                if (markerDist < minDist) {
+                  minDist = markerDist;
+                  to_place_index = i;
+                  nearest_text = places[i];
+                }
+              }
+            }
+            $("#nearestMarker").text("Hey! You are near " + nearest_text + "!");
+            $("#mybutton").text("Click here to get directions to " + nearest_text);
+            to_place = map.objects.get(to_place_index).coordinate;
+            $("#mybutton" ).click(function() {makeRouteRequest();});
+          }
+
+          function findUserCurrentLocation(map, places) {
+           if (nokia.maps.positioning.Manager) {
+              var positioning = new nokia.maps.positioning.Manager();
+              positioning.getCurrentPosition(
+                function (position) {
+                  var user_coords = position.coords;
+                  from_place = user_coords;
+                  marker = new nokia.maps.map.StandardMarker(user_coords),
+                  accuracyCircle = new nokia.maps.map.Circle(user_coords, user_coords.accuracy);
+                  marker.set("brush" , { color :"#A80000"});
+                  map.objects.addAll([accuracyCircle, marker]);
+                  findNearestMarker(user_coords, places);
+                },
+                // Something went wrong we were unable to retrieve the GPS location
+                function (error) {
+                  var errorMsg = 'Location could not be determined: ',
+                    errors = ['PERMISSION_DENIED', 'POSITION_UNAVAILABLE', 'TIMEOUT'];
+                  if (error.code < 4) {
+                    errorMsg += errors[error - 1];
+                  } else {
+                    errorMsg += 'UNKNOWN ERROR';
+                  }
+                  alert(errorMsg);
+                },
+                {maximumAge: 750}
+              );
+            }
+          }
+
+          function afterHereMapLoad(theMap) {
+            map = theMap;
+            map.setCenter([41.831709, -87.628119]);
+            map.setZoomLevel(11);
+            map.set('baseMapType', map.SATELLITE);
+
+            var coords = [[41.79942, -87.596569],
+                          [41.889027, -87.632812],
+                          [41.840214, -87.623246],
+                          [41.884694, -87.697678],
+                          [41.836623, -87.760849]];
+            var places = ['Walmart', 'Best Buy', 'Target', 'Jewel Osco', 'Costco'];
+            $.each(coords , function (index, value) {
+              map.objects.add(
+                new nokia.maps.map.StandardMarker(value, {
+                  draggable: true
+                })
+              );
+            });
+            addInfoBubble(map, coords, places);
+            findUserCurrentLocation(map, places);
+          }
+          </script>
+        <script type="text/javascript" src="libs/prettyprint.js"></script>
+        <footer id="footer">
+        <div id="footercontent">
+          <p>Created by Srinivas Jagadeesh And Sukanya Sengupta</p>
+        </div>
+      </footer>
+  </div>
+</body>
+</html>
